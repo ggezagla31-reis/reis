@@ -184,7 +184,7 @@
             <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
                 <div class="space-y-2">
                     <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Asset</label>
-                    <select id="pair" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option>EURUSD</option><option>GBPUSD</option><option>NAS100</option><option>SPX500</option><option>XAUUSD</option><option>USDJPY</option></select>
+                    <select id="pair" onchange="checkCustomPair(this.value)" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option>EURUSD</option><option>GBPUSD</option><option>NAS100</option><option>SPX500</option><option>XAUUSD</option><option>USDJPY</option><option value="custom">Other...</option></select><input id="customPairInput" type="text" placeholder="Asset adı..." class="hidden custom-input w-full p-3 rounded-lg text-xs mt-2 font-bold">
                 </div>
                 <div class="space-y-2">
                     <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Session</label>
@@ -275,6 +275,7 @@
     function setLoading(on) { document.getElementById('loadingBar').style.display = on ? 'block' : 'none'; }
     function toggleDropdown() { document.getElementById('accDropdown').classList.toggle('show'); }
     function checkCustomRR(val) { document.getElementById('customRRInput').classList.toggle('hidden', val !== 'custom'); }
+    function checkCustomPair(val) { document.getElementById("customPairInput").classList.toggle("hidden", val !== "custom"); }
     function checkOtherSetup(val) { document.getElementById('otherSetupInput').classList.toggle('hidden', val !== 'other'); }
     window.onclick = function(e) { if (!e.target.closest('.dropdown')) document.getElementById('accDropdown').classList.remove('show'); }
 
@@ -398,7 +399,7 @@
             id: Date.now(), user: currentUser,
             date: manualDate ? new Date(manualDate).toLocaleDateString('tr-TR') : now.toLocaleDateString('tr-TR'),
             time: manualTime || now.toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'}),
-            p: document.getElementById('pair').value,
+            p: document.getElementById('pair').value === 'custom' ? (document.getElementById('customPairInput').value || 'OTHER') : document.getElementById('pair').value,
             ss: document.getElementById('session').value,
             st: finalSetup || "Other",
             rr: finalRR || "1:1",
