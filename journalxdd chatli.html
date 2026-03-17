@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JOURNALXDD - Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        // 🔥 BURAYA KENDİ FIREBASE CONFIG'İNİ YAZ
+        const firebaseConfig = {
+            apiKey: "AIzaSyCqz54wkidyD4ih7BehylAmfIxH8AQiJKk",
+            authDomain: "reis-6c69b.firebaseapp.com",
+            projectId: "reis-6c69b",
+            storageBucket: "reis-6c69b.firebasestorage.app",
+            messagingSenderId: "1067323430561",
+            appId: "1:1067323430561:web:cd8a8f3debf3bea3f9c2e0"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        window._db = db;
+        window._tradesCol = collection(db, "trades");
+        window._addDoc = addDoc;
+        window._deleteDoc = deleteDoc;
+        window._doc = doc;
+        window._onSnapshot = onSnapshot;
+        window._setDoc = setDoc;
+        window._collection = collection;
+        window._query = query;
+        window._orderBy = orderBy;
+        window._allTrades = [];
+        window._dbReady = true;
+
+        // Trades listener
+        onSnapshot(query(collection(db, "trades"), orderBy("id", "desc")), (snap) => {
+            window._allTrades = snap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+            if (!window.currentUser) {
+                const saved = sessionStorage.getItem('currentUser');
+                if (saved) window.currentUser = saved;
+            }
+            if (window.render) window.render();
+        });
+
+        // Presence listener
+        onSnapshot(collection(db, "presence"), (snap) => {
+            window._onlineUsers = {};
+            const now = Date.now();
+            snap.docs.forEach(d => {
+                const data = d.data();
+                const lastSeen = typeof data.lastSeen === 'number' ? data.lastSeen : 0;
+                window._onlineUsers[d.id] = (now - lastSeen) < 30000;
+            });
+            if (window.updatePresenceDots) window.updatePresenceDots();
+        });
+
+        // Chat listener
+        onSnapshot(query(collection(db, "chat"), orderBy("ts", "asc")), (snap) => {
+            window._chatMsgs = snap.docs.map(d => d.data());
+            if (window.renderChat) window.renderChat(window._chatMsgs);
+            if (!window._chatOpen && window._chatMsgs.length > 0) {
+                const last = window._chatMsgs[window._chatMsgs.length - 1];
+                if (last.user !== window.currentUser) {
+                    window._unread = (window._unread || 0) + 1;
+                    const badge = document.getElementById('chatUnread');
+                    if (badge) { badge.style.display = 'flex'; badge.textContent = window._unread; }
+                }
+            }
+        });
+
+        console.log("✅ Firebase bağlandı");
+    </script>
+
+    <style>
+        #loginOverlay { position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center; }
+        .login-card { background:#000;border:1px solid #222;padding:4rem 3rem;width:100%;max-width:400px;text-align:center; }
+        .key-box { background:#000!important;border:1px solid #333!important;color:#fff!important;width:100%;padding:1rem;border-radius:4px;text-align:center;outline:none;margin-bottom:1.5rem;font-family:'Space Grotesk'; }
+        .btn-enter { background:#fff;color:#000;width:100%;padding:1rem;border-radius:4px;font-weight:900;text-transform:uppercase;cursor:pointer;border:none; }
+        .hidden-app { display:none; }
+
+        :root { --surface:#0f172a;--bg:#020617;--text-main:#f8fafc;--border:rgba(255,255,255,0.1);--input-bg:#1e293b;--input-color:#fff;--dropdown-bg:#1e293b;--dropdown-border:#334155;--dropdown-hover:#334155; }
+        body.light { --surface:#ffffff;--bg:#f1f5f9;--text-main:#0f172a;--border:rgba(0,0,0,0.1);--input-bg:#e2e8f0;--input-color:#0f172a;--dropdown-bg:#ffffff;--dropdown-border:#cbd5e1;--dropdown-hover:#f1f5f9; }
+
+        body { background:var(--bg);color:var(--text-main);font-family:'Inter',sans-serif;overflow-x:hidden;transition:background 0.2s,color 0.2s; }
+        .card-layer { background:var(--surface);border:1px solid var(--border); }
+        .custom-input { background:var(--input-bg)!important;border:1px solid var(--border)!important;color:var(--input-color)!important;outline:none!important;appearance:none!important; }
+        select { background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");background-repeat:no-repeat;background-position:right 1rem center;background-size:1em; }
+        .dropdown { position:relative;z-index:50; }
+        .dropdown-content { display:none;position:absolute;right:0;top:110%;background:var(--dropdown-bg);border:1px solid var(--dropdown-border);min-width:240px;border-radius:12px;z-index:100;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,0.3); }
+        .dropdown-content.show { display:block; }
+        .dropdown-item { padding:14px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--dropdown-border); }
+        .dropdown-item:hover { background:var(--dropdown-hover); }
+        .rr-lvl-low { color:#10b981; } .rr-lvl-mid { color:#fbbf24; } .rr-lvl-high { color:#f97316; } .rr-lvl-extreme { color:#ef4444; }
+        #confirmModal { position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px); }
+        .modal-box { background:#000;border:1px solid #333;padding:2.5rem;border-radius:1.5rem;text-align:center;max-width:350px;width:90%; }
+        #loadingBar { position:fixed;top:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#10b981,#3b82f6);z-index:99999;display:none;animation:loading 1s infinite; }
+        @keyframes loading { 0%{opacity:1}50%{opacity:0.4}100%{opacity:1} }
+        .theme-toggle { cursor:pointer;padding:8px 16px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text-main);font-size:11px;font-weight:900;letter-spacing:0.1em;transition:all 0.2s; }
+        /* Chat styles */
+        #chatMessages { flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px; }
+        #chatMessages::-webkit-scrollbar { width:3px; }
+        #chatMessages::-webkit-scrollbar-thumb { background:#334155;border-radius:2px; }
+        #chatInputRow { display:flex;gap:8px;padding:10px;border-top:1px solid var(--border); }
+        #chatInput { flex:1;background:var(--input-bg);border:1px solid var(--border);color:var(--text-main);padding:9px 13px;border-radius:10px;font-size:12px;outline:none;font-family:'Inter',sans-serif; }
+        #chatSendBtn { background:linear-gradient(135deg,#10b981,#3b82f6);border:none;border-radius:10px;width:36px;cursor:pointer;color:white;font-size:15px; }
+    </style>
+</head>
+<body>
+
+<div id="loadingBar"></div>
+
+<div id="confirmModal">
+    <div class="modal-box shadow-2xl">
+        <h2 class="text-white font-black text-xl mb-2">DİKKAT</h2>
+        <p class="text-gray-400 text-sm mb-8">Silmek istediğinize emin misiniz?</p>
+        <div class="flex gap-4">
+            <button onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-white/10 text-xs font-bold hover:bg-white/5 transition-all">İPTAL</button>
+            <button id="confirmDeleteBtn" class="flex-1 py-3 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 transition-all">SİL</button>
+        </div>
+    </div>
+</div>
+
+<div id="loginOverlay">
+    <div class="login-card">
+        <h1 class="text-white text-4xl font-black tracking-tighter mb-2 italic">TRUST THE PROCESS</h1>
+        <p class="text-[10px] text-gray-600 tracking-[3px] mb-8 uppercase">ggxd</p>
+        <input type="password" id="keyInput" placeholder="ENTER ACCESS KEY" class="key-box" onkeypress="if(event.key==='Enter') unlock()">
+        <button onclick="unlock()" class="btn-enter hover:bg-emerald-400 transition-colors">LOGIN</button>
+    </div>
+</div>
+
+<div id="mainApp" class="hidden-app p-6 md:p-12">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-3xl font-black tracking-tight uppercase" style="color:var(--text-main)">Journal<span class="text-emerald-500">XDD</span></h1>
+                <p class="text-[10px] font-bold uppercase tracking-[0.4em]" style="color:var(--text-main);opacity:0.4">Global Terminal / 2026</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="text-right">
+                    <p class="text-[8px] opacity-40 font-black uppercase mb-1">UTC+3</p>
+                    <p id="utcClock" class="text-xs font-black tracking-widest" style="color:var(--text-main)">--:--:--</p>
+                </div>
+                <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()">LIGHT MODE</button>
+                <div class="dropdown">
+                    <div class="flex items-center gap-3 p-3 px-5 rounded-2xl cursor-pointer transition-all" style="background:var(--surface);border:1px solid var(--border)" onclick="toggleDropdown()">
+                        <div class="relative">
+                            <img id="statusAvatar" src="" class="w-8 h-8 rounded-full object-cover hidden">
+                            <span id="selfDot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-gray-600 border-2" style="border-color:var(--surface)"></span>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[8px] opacity-40 font-black uppercase mb-1">Status</p>
+                            <p id="activeDisplay" class="text-xs font-bold tracking-widest uppercase" style="color:var(--text-main)">Select Account</p>
+                        </div>
+                        <span class="opacity-20 text-[10px]">▼</span>
+                    </div>
+                    <div id="accDropdown" class="dropdown-content">
+                        <div class="dropdown-item" onclick="switchUser('ALL')">
+                            <span class="font-bold text-sm">GLOBAL</span><span class="text-[9px] opacity-40 font-black">VIEW ONLY</span>
+                        </div>
+                        <div class="dropdown-item" onclick="switchUser('SAMET')">
+                            <div class="flex items-center gap-2">
+                                <div class="relative"><img src="data:image/jpeg;base64,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" class="w-7 h-7 rounded-full object-cover"><span id="dot-SAMET" class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-gray-600 border border-slate-800"></span></div>
+                                <span class="font-bold text-sm">SAMET</span>
+                            </div><span class="text-[9px] opacity-40 font-black">ACTIVE</span>
+                        </div>
+                        <div class="dropdown-item" onclick="switchUser('YUNUS')">
+                            <div class="flex items-center gap-2">
+                                <div class="relative"><img src="data:image/jpeg;base64,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" class="w-7 h-7 rounded-full object-cover"><span id="dot-YUNUS" class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-gray-600 border border-slate-800"></span></div>
+                                <span class="font-bold text-sm">YUNUS</span>
+                            </div><span class="text-[9px] opacity-40 font-black">ACTIVE</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="inputSection" class="card-layer p-8 rounded-[2rem] mb-10 shadow-2xl hidden">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-6">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Asset</label>
+                    <select id="pair" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option>EURUSD</option><option>GBPUSD</option><option>NAS100</option><option>SPX500</option><option>XAUUSD</option><option>USDJPY</option></select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Session</label>
+                    <select id="session" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option>Asia</option><option>London</option><option>NY AM</option><option>NY PM</option><option>Seans Dışı</option></select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Strategy</label>
+                    <select id="setup" onchange="checkOtherSetup(this.value)" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option>SSMT</option><option>ICT</option><option>IFVG</option><option value="other">Other...</option></select>
+                    <input id="otherSetupInput" type="text" placeholder="Strateji adı..." class="hidden custom-input w-full p-3 rounded-lg text-xs mt-2 font-bold">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">R:R Ratio</label>
+                    <select id="rr" onchange="checkCustomRR(this.value)" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option value="1:1">1:1</option><option value="1:2">1:2</option><option value="1:3">1:3</option><option value="1:5">1:5</option><option value="custom">Custom...</option></select>
+                    <input id="customRRInput" type="text" placeholder="Örn: 1:12" class="hidden custom-input w-full p-3 rounded-lg text-xs mt-2 font-mono">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Outcome</label>
+                    <select id="result" class="custom-input w-full p-4 rounded-xl text-xs font-bold"><option value="win">WIN</option><option value="loss">LOSS</option><option value="be">BREAKEVEN</option></select>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Açıklama</label>
+                    <input id="desc" type="text" placeholder="..." class="custom-input w-full p-4 rounded-xl text-xs font-bold">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Tarih</label>
+                    <input id="tradeDate" type="date" class="custom-input w-full p-4 rounded-xl text-xs font-bold">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">Saat</label>
+                    <input id="tradeTime" type="time" class="custom-input w-full p-4 rounded-xl text-xs font-bold">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black opacity-30 uppercase tracking-widest ml-1">PNL</label>
+                    <div class="flex gap-2">
+                        <button type="button" id="pnlPlus" onclick="setPnlSign('+')" class="px-4 py-2 rounded-xl text-xs font-black border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 transition-all">+</button>
+                        <button type="button" id="pnlMinus" onclick="setPnlSign('-')" class="px-4 py-2 rounded-xl text-xs font-black border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 transition-all">−</button>
+                        <input id="pnlValue" type="number" placeholder="0.00" class="custom-input flex-1 p-2 rounded-xl text-xs font-black text-center">
+                    </div>
+                </div>
+            </div>
+            <div class="mt-8 flex flex-col md:flex-row gap-4">
+                <input id="chart" type="text" placeholder="Screenshot URL..." class="custom-input flex-1 p-4 rounded-xl text-xs font-mono opacity-50 focus:opacity-100 transition-all">
+                <button onclick="addTrade()" class="relative px-20 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-lg" style="background:linear-gradient(135deg,#10b981,#3b82f6);color:white">SEND</button>
+            </div>
+        </div>
+
+        <div id="tradeList" class="space-y-4"></div>
+    </div>
+</div>
+
+<!-- CHAT BUTTON -->
+<div id="chatBtnWrap" style="position:fixed;bottom:28px;right:28px;z-index:8000;display:none">
+    <button onclick="toggleChat()" style="position:relative;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#10b981,#3b82f6);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(16,185,129,0.4)">
+        <svg width="22" height="22" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span id="chatUnread" style="position:absolute;top:-4px;right:-4px;background:#ef4444;color:white;font-size:9px;font-weight:900;width:18px;height:18px;border-radius:50%;display:none;align-items:center;justify-content:center">0</span>
+    </button>
+</div>
+
+<!-- CHAT BOX -->
+<div id="chatBox" class="card-layer" style="position:fixed;bottom:92px;right:28px;width:320px;height:420px;border-radius:20px;z-index:8000;display:none;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.4)">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <p style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em">GG Chat</p>
+        <button onclick="toggleChat()" style="background:none;border:none;cursor:pointer;opacity:0.4;font-size:18px;color:var(--text-main)">✕</button>
+    </div>
+    <div id="chatMessages"></div>
+    <div id="chatInputRow">
+        <input id="chatInput" placeholder="Mesaj yaz..." onkeypress="if(event.key==='Enter') sendChat()">
+        <button id="chatSendBtn" onclick="sendChat()">➤</button>
+    </div>
+</div>
+
+<script>
+    const AUTH_HASH = "d68517c55314e2cbff32f8b4a0da30c3cc52ba73c02105b9c2cfa7f8f3c25832";
+    let currentUser = null;
+    let deleteDocId = null;
+
+    const PROFILE_PHOTOS = {
+        'SAMET': 'data:image/jpeg;base64,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',
+        'YUNUS': 'data:image/jpeg;base64,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'
+    };
+
+    async function hashPassword(str) {
+        const msgBuffer = new TextEncoder().encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    function setLoading(on) { document.getElementById('loadingBar').style.display = on ? 'block' : 'none'; }
+    function toggleDropdown() { document.getElementById('accDropdown').classList.toggle('show'); }
+    function checkCustomRR(val) { document.getElementById('customRRInput').classList.toggle('hidden', val !== 'custom'); }
+    function checkOtherSetup(val) { document.getElementById('otherSetupInput').classList.toggle('hidden', val !== 'other'); }
+    window.onclick = function(e) { if (!e.target.closest('.dropdown')) document.getElementById('accDropdown').classList.remove('show'); }
+
+    function toggleTheme() {
+        const isLight = document.body.classList.toggle('light');
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        document.getElementById('themeBtn').textContent = isLight ? 'DARK MODE' : 'LIGHT MODE';
+    }
+    if (localStorage.getItem('theme') === 'light') {
+        document.body.classList.add('light');
+        document.getElementById('themeBtn').textContent = 'DARK MODE';
+    }
+
+    function updateClock() {
+        const now = new Date();
+        const utc3 = new Date(now.getTime() + 3*60*60*1000);
+        const h = String(utc3.getUTCHours()).padStart(2,'0');
+        const m = String(utc3.getUTCMinutes()).padStart(2,'0');
+        const s = String(utc3.getUTCSeconds()).padStart(2,'0');
+        const el = document.getElementById('utcClock');
+        if (el) el.textContent = h+':'+m+':'+s;
+    }
+    updateClock(); setInterval(updateClock, 1000);
+
+    async function unlock() {
+        const input = document.getElementById('keyInput').value;
+        const hash = await hashPassword(input);
+        if (hash === AUTH_HASH) {
+            sessionStorage.setItem('unlocked', '1');
+            showApp();
+        } else {
+            document.getElementById('keyInput').style.borderColor = '#ef4444';
+            setTimeout(() => document.getElementById('keyInput').style.borderColor = '#333', 1000);
+        }
+    }
+
+    function showApp() {
+        document.getElementById('loginOverlay').style.display = 'none';
+        document.getElementById('mainApp').classList.remove('hidden-app');
+        const savedUser = sessionStorage.getItem('currentUser');
+        if (savedUser) {
+            currentUser = savedUser;
+            document.getElementById('activeDisplay').innerText = savedUser;
+            document.getElementById('inputSection').classList.toggle('hidden', savedUser === 'ALL');
+            const avatar = document.getElementById('statusAvatar');
+            if (avatar && PROFILE_PHOTOS[savedUser]) { avatar.src = PROFILE_PHOTOS[savedUser]; avatar.classList.remove('hidden'); }
+            document.getElementById('chatBtnWrap').style.display = savedUser !== 'ALL' ? 'block' : 'none';
+        }
+    }
+    if (sessionStorage.getItem('unlocked') === '1') showApp();
+
+    function switchUser(user) {
+        currentUser = user;
+        window.currentUser = user;
+        sessionStorage.setItem('currentUser', user);
+        document.getElementById('activeDisplay').innerText = user;
+        document.getElementById('accDropdown').classList.remove('show');
+        document.getElementById('inputSection').classList.toggle('hidden', user === 'ALL');
+        const avatar = document.getElementById('statusAvatar');
+        if (avatar && PROFILE_PHOTOS[user]) { avatar.src = PROFILE_PHOTOS[user]; avatar.classList.remove('hidden'); }
+        else if (avatar) avatar.classList.add('hidden');
+        document.getElementById('chatBtnWrap').style.display = user !== 'ALL' ? 'block' : 'none';
+        pingPresence(user);
+        if (window.render) window.render();
+    }
+
+    window._onlineUsers = {};
+    window.updatePresenceDots = function() {
+        ['SAMET','YUNUS'].forEach(user => {
+            const dot = document.getElementById('dot-' + user);
+            if (!dot) return;
+            const online = window._onlineUsers[user];
+            dot.style.background = online ? '#10b981' : '#475569';
+            dot.style.boxShadow = online ? '0 0 6px #10b981' : 'none';
+        });
+        const selfDot = document.getElementById('selfDot');
+        if (selfDot && currentUser && currentUser !== 'ALL') {
+            const online = window._onlineUsers[currentUser];
+            selfDot.style.background = online ? '#10b981' : '#475569';
+            selfDot.style.boxShadow = online ? '0 0 8px #10b981' : 'none';
+        }
+    }
+
+    async function pingPresence(user) {
+        if (!window._setDoc || !user || user === 'ALL') return;
+        try {
+            await window._setDoc(window._doc(window._db, "presence", user), { lastSeen: Date.now() }, { merge: true });
+            const selfDot = document.getElementById('selfDot');
+            if (selfDot) { selfDot.style.background = '#10b981'; selfDot.style.boxShadow = '0 0 8px #10b981'; }
+        } catch(e) { console.error('ping error', e); }
+    }
+    setInterval(() => { if (currentUser && currentUser !== 'ALL') pingPresence(currentUser); }, 15000);
+
+    window._pnlSign = '+';
+    function setPnlSign(sign) {
+        window._pnlSign = sign;
+        document.getElementById('pnlPlus').style.background = sign === '+' ? 'rgba(16,185,129,0.2)' : '';
+        document.getElementById('pnlMinus').style.background = sign === '-' ? 'rgba(239,68,68,0.2)' : '';
+    }
+    setPnlSign('+');
+
+    function getRRColorClass(rr) {
+        const num = parseFloat(rr.split(':')[1]) || 1;
+        if (num <= 2) return 'rr-lvl-low';
+        if (num <= 4) return 'rr-lvl-mid';
+        if (num <= 6) return 'rr-lvl-high';
+        return 'rr-lvl-extreme';
+    }
+
+    async function addTrade() {
+        if (!currentUser || currentUser === 'ALL') return;
+        if (!window._dbReady) { alert('Firebase bağlanmadı'); return; }
+        const now = new Date();
+        const manualDate = document.getElementById('tradeDate').value;
+        const manualTime = document.getElementById('tradeTime').value;
+        const rrVal = document.getElementById('rr').value;
+        const finalRR = rrVal === 'custom' ? document.getElementById('customRRInput').value : rrVal;
+        const setupVal = document.getElementById('setup').value;
+        const finalSetup = setupVal === 'other' ? document.getElementById('otherSetupInput').value : setupVal;
+        const trade = {
+            id: Date.now(), user: currentUser,
+            date: manualDate ? new Date(manualDate).toLocaleDateString('tr-TR') : now.toLocaleDateString('tr-TR'),
+            time: manualTime || now.toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'}),
+            p: document.getElementById('pair').value,
+            ss: document.getElementById('session').value,
+            st: finalSetup || "Other",
+            rr: finalRR || "1:1",
+            desc: document.getElementById('desc').value,
+            c: document.getElementById('chart').value.trim() || '#',
+            w: document.getElementById('result').value === 'win' ? true : document.getElementById('result').value === 'be' ? 'be' : false,
+            pnlSign: window._pnlSign || '+',
+            pnlVal: document.getElementById('pnlValue').value || ''
+        };
+        setLoading(true);
+        try {
+            await window._addDoc(window._tradesCol, trade);
+            document.getElementById('chart').value = '';
+            document.getElementById('desc').value = '';
+            document.getElementById('pnlValue').value = '';
+            setPnlSign('+');
+        } catch(e) { alert('Kayıt hatası: ' + e.message); }
+        setLoading(false);
+    }
+
+    function askDelete(docId) {
+        deleteDocId = docId;
+        document.getElementById('confirmModal').style.display = 'flex';
+        document.getElementById('confirmDeleteBtn').onclick = async () => {
+            const id = deleteDocId;
+            closeModal();
+            setLoading(true);
+            try { await window._deleteDoc(window._doc(window._db, "trades", id)); }
+            catch(e) { alert('Silme hatası: ' + e.message); }
+            setLoading(false);
+        };
+    }
+    function closeModal() { document.getElementById('confirmModal').style.display = 'none'; deleteDocId = null; }
+
+    window.render = function() {
+        const container = document.getElementById('tradeList');
+        container.innerHTML = '';
+        if (!currentUser) return;
+        const trades = (window._allTrades || []).filter(t => currentUser === 'ALL' ? true : t.user === currentUser);
+        if (!trades.length) {
+            container.innerHTML = `<div class="text-center font-black uppercase tracking-widest text-xs py-20" style="opacity:0.2">No trades logged yet.</div>`;
+            return;
+        }
+        trades.forEach(t => {
+            const badge = t.user === 'SAMET' ? 'text-blue-400 border-blue-400/20' : 'text-pink-400 border-pink-400/20';
+            const rrClass = getRRColorClass(t.rr);
+            container.innerHTML += `
+                <div class="card-layer p-6 rounded-2xl flex items-center justify-between group">
+                    <div class="flex items-center gap-6">
+                        <div class="w-1.5 h-12 rounded-full ${t.w ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]'}"></div>
+                        <div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl font-black" style="color:var(--text-main)">${t.p}</span>
+                                <span class="text-[9px] font-black border px-2 py-0.5 rounded uppercase ${badge}">${t.user}</span>
+                                <span class="text-[10px] font-black ${t.w === true ? 'text-emerald-500' : t.w === 'be' ? 'text-yellow-400' : 'text-rose-500'} uppercase">${t.w === true ? 'WIN' : t.w === 'be' ? 'BE' : 'LOSS'}</span>
+                            </div>
+                            <div class="text-[10px] uppercase font-black tracking-widest mt-1" style="color:var(--text-main);opacity:0.5">${t.ss} • ${t.st}</div>
+                            <div class="text-[10px] font-black tracking-widest mt-1" style="color:var(--text-main);opacity:0.4">${t.date||''} ${t.time ? '• '+t.time : ''}</div>
+                            ${t.desc ? `<div class="text-xs mt-2 italic" style="color:var(--text-main);opacity:0.5">"${t.desc}"</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <div class="flex flex-col items-end">
+                            <span class="text-[10px] font-black uppercase mb-1" style="color:var(--text-main);opacity:0.4">Ratio</span>
+                            <span class="text-sm font-black ${rrClass}">${t.rr}</span>
+                        </div>
+                        ${t.pnlVal ? `<div class="flex flex-col items-end">
+                            <span class="text-[10px] font-black uppercase mb-1" style="color:var(--text-main);opacity:0.4">PNL</span>
+                            <span class="text-sm font-black ${t.pnlSign==='+' ? 'text-emerald-500' : 'text-rose-500'}">${t.pnlSign}$${t.pnlVal}</span>
+                        </div>` : ''}
+                        <div class="flex items-center gap-3">
+                            <a href="${t.c}" target="_blank" class="p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors ${t.c==='#' ? 'opacity-5 pointer-events-none' : ''}">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                            </a>
+                            ${currentUser !== 'ALL' ? `<button onclick="askDelete('${t._docId}')" class="opacity-0 group-hover:opacity-100 p-3 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+        });
+    }
+
+    // ===== CHAT =====
+    window._chatOpen = false;
+    window._unread = 0;
+
+    window.toggleChat = function() {
+        window._chatOpen = !window._chatOpen;
+        document.getElementById('chatBox').style.display = window._chatOpen ? 'flex' : 'none';
+        if (window._chatOpen) {
+            window._unread = 0;
+            const badge = document.getElementById('chatUnread');
+            badge.style.display = 'none';
+            setTimeout(() => {
+                const msgs = document.getElementById('chatMessages');
+                if (msgs) msgs.scrollTop = msgs.scrollHeight;
+                const inp = document.getElementById('chatInput');
+                if (inp) inp.focus();
+            }, 50);
+        }
+    }
+
+    window.sendChat = async function() {
+        if (!currentUser || currentUser === 'ALL') return;
+        if (!window._addDoc || !window._collection || !window._db) return;
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        await window._addDoc(window._collection(window._db, 'chat'), { user: currentUser, text, ts: Date.now() });
+    }
+
+    window.renderChat = function(msgs) {
+        const container = document.getElementById('chatMessages');
+        if (!container) return;
+        container.innerHTML = '';
+        msgs.forEach(m => {
+            const isMine = m.user === currentUser;
+            const photo = PROFILE_PHOTOS[m.user] ? `<img src="${PROFILE_PHOTOS[m.user]}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;margin-${isMine?'left':'right'}:6px;flex-shrink:0">` : '';
+            const div = document.createElement('div');
+            div.style.cssText = `display:flex;align-items:flex-end;justify-content:${isMine?'flex-end':'flex-start'}`;
+            div.innerHTML = (!isMine ? photo : '') +
+                `<div style="max-width:75%;padding:8px 12px;border-radius:14px;font-size:11px;font-weight:600;line-height:1.5;background:${isMine?'linear-gradient(135deg,#10b981,#3b82f6)':'var(--input-bg)'};color:${isMine?'white':'var(--text-main)'};border-bottom-${isMine?'right':'left'}-radius:4px">
+                    <div style="font-size:9px;font-weight:900;opacity:0.6;margin-bottom:2px;text-transform:uppercase">${m.user}</div>
+                    ${m.text}
+                </div>` + (isMine ? photo : '');
+            container.appendChild(div);
+        });
+        container.scrollTop = container.scrollHeight;
+    }
+</script>
+</body>
+</html>
